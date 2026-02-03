@@ -8,6 +8,9 @@
 </head>
 <body>
   <div class="app">
+    <!-- 录制状态指示条 -->
+    <div id="recordingIndicator" class="recording-indicator hidden"></div>
+    
     <!-- 头部 -->
     <header class="header">
       <div class="header-left">
@@ -24,6 +27,10 @@
         <h1 class="title">Request Record</h1>
       </div>
       <div class="header-right">
+        <div id="recordingStats" class="recording-stats">
+          <span class="pulse-dot"></span>
+          <span>录制中: <span id="recordingCount">0</span></span>
+        </div>
         <span id="requestCount" class="badge">0</span>
       </div>
     </header>
@@ -59,6 +66,24 @@
         </svg>
         <span id="filterIndicator" class="filter-indicator hidden"></span>
       </button>
+      <button id="bulkManageBtn" class="btn btn-secondary" title="批量管理">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="5" width="6" height="6" rx="1"/>
+          <rect x="3" y="13" width="6" height="6" rx="1"/>
+          <path d="M13 6h8M13 14h8"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 批量操作栏 -->
+    <div id="bulkActionsBar" class="bulk-actions-bar hidden">
+      <div class="bulk-info">已选择 <span id="selectedCount">0</span> 项</div>
+      <div class="bulk-buttons">
+        <button id="selectAllBtn" class="btn btn-secondary btn-sm">全选</button>
+        <button id="bulkDeleteBtn" class="btn btn-danger btn-sm">批量删除</button>
+        <button id="bulkExportBtn" class="btn btn-primary btn-sm">批量导出</button>
+        <button id="cancelSelectionBtn" class="btn btn-secondary btn-sm">取消</button>
+      </div>
     </div>
 
     <!-- 搜索和筛选栏 -->

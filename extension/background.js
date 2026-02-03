@@ -7,6 +7,13 @@ let domainFilters = [];
 let isInitialized = false;
 let pendingRequests = new Map(); // 用于跟踪请求开始时间
 
+// 自动清理配置
+const AUTO_CLEAN_CONFIG = {
+  enabled: true,
+  retentionDays: 7,
+  checkIntervalMinutes: 60
+};
+
 // 静态资源文件扩展名列表
 const STATIC_EXTENSIONS = [
   '.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2',
@@ -36,6 +43,18 @@ initializeState();
 // 安装时也初始化
 chrome.runtime.onInstalled.addListener(() => {
   initializeState();
+  
+  // 创建右键菜单
+  chrome.contextMenus.create({
+    id: 'toggleRecording',
+    title: '⏺ 开始录制请求',
+    contexts: ['page']
+  });
+  
+  // 创建自动清理定时器
+  chrome.alarms.create('autoCleanRequests', {
+    periodInMinutes: AUTO_CLEAN_CONFIG.checkIntervalMinutes
+  });
 });
 
 // 检查URL是否为静态资源
@@ -256,12 +275,14 @@ function handleMessage(message, sendResponse) {
     case 'startRecording':
       isRecording = true;
       chrome.storage.local.set({ isRecording: true });
+      updateContextMenu();
       sendResponse({ success: true });
       break;
 
     case 'stopRecording':
       isRecording = false;
       chrome.storage.local.set({ isRecording: false });
+      updateContextMenu();
       sendResponse({ success: true });
       break;
 
@@ -299,7 +320,59 @@ function handleMessage(message, sendResponse) {
       sendResponse({ requests: recordedRequests });
       break;
 
+    case 'bulkDeleteRequests':
+      const idsToDelete = message.requestIds || [];
+      recordedRequests = recordedRequests.filter(r => !idsToDelete.includes(r.id));
+      chrome.storage.local.set({ recordedRequests: recordedRequests });
+      sendResponse({ success: true });
+      notifyPopup();
+      break;
+
     default:
       sendResponse({ error: 'Unknown action' });
+  }
+}
+
+// 更新右键菜单文字
+function updateContextMenu() {
+  const title = isRecording ? '⏸ 停止录制请求' : '⏺ 开始录制请求';
+  chrome.contextMenus.update('toggleRecording', { title }).catch(() => {
+    // 菜单可能还未创建，忽略错误
+  });
+}
+
+// 右键菜单点击处理
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'toggleRecording') {
+    isRecording = !isRecording;
+    chrome.storage.local.set({ isRecording });
+    updateContextMenu();
+    notifyPopup();
+  }
+});
+
+// 自动清理定时任务
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'autoCleanRequests' && AUTO_CLEAN_CONFIG.enabled) {
+    performAutoClean();
+  }
+});
+
+// 执行自动清理
+function performAutoClean() {
+  const cutoffTime = Date.now() - (AUTO_CLEAN_CONFIG.retentionDays * 24 * 60 * 60 * 1000);
+  const originalCount = recordedRequests.length;
+  
+  recordedRequests = recordedRequests.filter(req => {
+    const reqTime = new Date(req.timestamp).getTime();
+    return reqTime > cutoffTime;
+  });
+  
+  const cleanedCount = originalCount - recordedRequests.length;
+  
+  if (cleanedCount > 0) {
+    chrome.storage.local.set({ recordedRequests });
+    console.log(`Auto-clean: removed ${cleanedCount} old requests`);
+    notifyPopup();
   }
 }

@@ -7,7 +7,9 @@
     "webRequest",
     "storage",
     "activeTab",
-    "tabs"
+    "tabs",
+    "contextMenus",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

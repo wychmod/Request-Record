@@ -11,6 +11,26 @@ class RequestRecordApp {
     this.currentRequestId = null; // 当前查看的请求ID
     this.copyDataStore = new Map(); // 用于存储复制数据，避免HTML转义问题
     
+    // 防抖搜索配置
+    this.searchDebounceTimer = null;
+    this.searchDebounceDelay = 200;
+    
+    // 录制会话统计
+    this.sessionRecordCount = 0;
+    
+    // 批量选择状态
+    this.selectedRequests = new Set();
+    this.isSelectionMode = false;
+    
+    // 虚拟滚动配置
+    this.virtualScrollConfig = {
+      itemHeight: 64,
+      bufferSize: 10,
+      threshold: 50,
+      observer: null
+    };
+    this.renderedItems = new Set();
+    
     this.init();
   }
 
@@ -47,6 +67,20 @@ class RequestRecordApp {
     this.detailContent = document.getElementById('detailContent');
     this.closeDrawerBtn = document.getElementById('closeDrawerBtn');
     this.deleteRequestBtn = document.getElementById('deleteRequestBtn');
+    
+    // 录制视觉强化元素
+    this.recordingIndicator = document.getElementById('recordingIndicator');
+    this.recordingStats = document.getElementById('recordingStats');
+    this.recordingCountEl = document.getElementById('recordingCount');
+    
+    // 批量操作元素
+    this.bulkManageBtn = document.getElementById('bulkManageBtn');
+    this.bulkActionsBar = document.getElementById('bulkActionsBar');
+    this.selectedCountEl = document.getElementById('selectedCount');
+    this.selectAllBtn = document.getElementById('selectAllBtn');
+    this.bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    this.bulkExportBtn = document.getElementById('bulkExportBtn');
+    this.cancelSelectionBtn = document.getElementById('cancelSelectionBtn');
   }
 
   bindEvents() {
@@ -76,11 +110,12 @@ class RequestRecordApp {
     });
     this.clearFiltersBtn.addEventListener('click', () => this.clearFilters());
     
-    // 搜索
+    // 搜索 - 使用防抖
+    const debouncedSearch = this.debounce((query) => this.performSearch(query), this.searchDebounceDelay);
     this.searchInput.addEventListener('input', (e) => {
       this.searchQuery = e.target.value;
       this.updateClearSearchBtn();
-      this.renderRequestList();
+      debouncedSearch(e.target.value);
     });
     
     // 清除搜索
@@ -111,6 +146,13 @@ class RequestRecordApp {
     
     // 删除单条请求
     this.deleteRequestBtn.addEventListener('click', () => this.deleteCurrentRequest());
+    
+    // 批量操作
+    this.bulkManageBtn.addEventListener('click', () => this.toggleSelectionMode());
+    this.selectAllBtn.addEventListener('click', () => this.selectAllRequests());
+    this.bulkDeleteBtn.addEventListener('click', () => this.bulkDeleteRequests());
+    this.bulkExportBtn.addEventListener('click', () => this.bulkExportRequests());
+    this.cancelSelectionBtn.addEventListener('click', () => this.exitSelectionMode());
   }
 
   // 设置事件驱动的消息监听
@@ -126,7 +168,16 @@ class RequestRecordApp {
   refreshRequests() {
     chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
       if (response) {
+        const previousCount = this.requests.length;
         this.requests = response.requests || [];
+        
+        // 如果正在录制且有新请求，更新会话计数
+        if (this.isRecording && this.requests.length > previousCount) {
+          const newCount = this.requests.length - previousCount;
+          this.sessionRecordCount += newCount;
+          this.recordingCountEl.textContent = this.sessionRecordCount;
+        }
+        
         this.updateRequestCount();
         this.renderRequestList();
       }
@@ -140,6 +191,138 @@ class RequestRecordApp {
     } else {
       this.clearSearchBtn.classList.add('hidden');
     }
+  }
+
+  // 防抖函数
+  debounce(func, delay) {
+    return (...args) => {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = setTimeout(() => func.apply(this, args), delay);
+    };
+  }
+
+  // 执行搜索
+  performSearch(query) {
+    this.searchQuery = query;
+    this.renderRequestList();
+  }
+
+  // 转义正则表达式特殊字符
+  escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // 高亮搜索文本
+  highlightText(text, query) {
+    if (!query) return this.escapeHtml(text);
+    const escaped = this.escapeHtml(text);
+    const regex = new RegExp(`(${this.escapeRegex(query)})`, 'gi');
+    return escaped.replace(regex, '<mark class="search-highlight">$1</mark>');
+  }
+
+  // 初始化虚拟滚动
+  initVirtualScroll() {
+    const { itemHeight, bufferSize } = this.virtualScrollConfig;
+    
+    this.virtualScrollConfig.observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          const id = entry.target.dataset.id;
+          if (entry.isIntersecting) {
+            this.renderVirtualItem(id);
+          }
+        });
+      },
+      {
+        root: this.requestList,
+        rootMargin: `${bufferSize * itemHeight}px 0px`,
+        threshold: 0.01
+      }
+    );
+  }
+
+  // 虚拟列表渲染
+  renderVirtualList(filtered) {
+    if (!this.virtualScrollConfig.observer) {
+      this.initVirtualScroll();
+    }
+    
+    this.renderedItems.clear();
+    this.virtualScrollConfig.observer.disconnect();
+    
+    const { itemHeight } = this.virtualScrollConfig;
+    
+    this.requestList.innerHTML = filtered.map(req => `
+      <div class="request-placeholder" 
+           data-id="${req.id}" 
+           style="height: ${itemHeight}px">
+      </div>
+    `).join('');
+    
+    this.requestList.querySelectorAll('.request-placeholder').forEach(el => {
+      this.virtualScrollConfig.observer.observe(el);
+    });
+  }
+
+  // 渲染单个虚拟项
+  renderVirtualItem(requestId) {
+    if (this.renderedItems.has(requestId)) return;
+    
+    const placeholder = this.requestList.querySelector(`.request-placeholder[data-id="${requestId}"]`);
+    if (!placeholder) return;
+    
+    const req = this.requests.find(r => r.id === requestId);
+    if (!req) return;
+    
+    const urlParts = this.getDisplayUrl(req.url);
+    const durationText = this.formatDuration(req.duration);
+    const durationClass = this.getDurationClass(req.duration);
+    const isSelected = this.selectedRequests.has(req.id);
+    
+    const itemHtml = `
+      <div class="request-item ${isSelected ? 'selected' : ''}" data-id="${req.id}">
+        ${this.isSelectionMode ? `
+          <input type="checkbox" class="request-checkbox" 
+                 data-id="${req.id}" 
+                 ${isSelected ? 'checked' : ''}>
+        ` : ''}
+        <span class="method-badge ${req.method.toLowerCase()}">${req.method}</span>
+        <div class="request-info">
+          <div class="request-url-wrapper">
+            <div class="request-pathname">${this.highlightText(urlParts.pathname, this.searchQuery)}</div>
+            ${urlParts.queryParams ? `<div class="request-query">${this.highlightText(urlParts.queryParams, this.searchQuery)}</div>` : ''}
+          </div>
+          <div class="request-meta">
+            <span>${this.formatTime(req.timestamp)}</span>
+            ${req.statusCode ? `<span class="status-badge ${this.getStatusClass(req.statusCode)}">${req.statusCode}</span>` : ''}
+            ${durationText ? `<span class="duration-badge ${durationClass}">${durationText}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+    
+    placeholder.outerHTML = itemHtml;
+    
+    // 重新获取元素并绑定事件
+    const item = this.requestList.querySelector(`.request-item[data-id="${requestId}"]`);
+    if (item) {
+      item.addEventListener('click', (e) => {
+        if (e.target.classList.contains('request-checkbox')) return;
+        this.showDetail(req);
+      });
+      
+      if (this.isSelectionMode) {
+        const cb = item.querySelector('.request-checkbox');
+        if (cb) {
+          cb.addEventListener('change', (e) => {
+            e.stopPropagation();
+            this.toggleRequestSelection(requestId, e.target.checked);
+          });
+        }
+      }
+    }
+    
+    this.renderedItems.add(requestId);
   }
 
   // 更新过滤器指示器
@@ -188,9 +371,18 @@ class RequestRecordApp {
     if (this.isRecording) {
       this.recordBtn.classList.add('recording');
       this.recordBtn.querySelector('.btn-text').textContent = '停止记录';
+      // 显示录制指示器
+      this.recordingIndicator.classList.remove('hidden');
+      this.recordingStats.classList.add('active');
     } else {
       this.recordBtn.classList.remove('recording');
       this.recordBtn.querySelector('.btn-text').textContent = '开始记录';
+      // 隐藏录制指示器
+      this.recordingIndicator.classList.add('hidden');
+      this.recordingStats.classList.remove('active');
+      // 重置会话计数
+      this.sessionRecordCount = 0;
+      this.recordingCountEl.textContent = '0';
     }
   }
 
@@ -437,6 +629,79 @@ class RequestRecordApp {
     }
   }
 
+  // 切换批量选择模式
+  toggleSelectionMode() {
+    this.isSelectionMode = !this.isSelectionMode;
+    if (this.isSelectionMode) {
+      this.bulkActionsBar.classList.remove('hidden');
+    } else {
+      this.exitSelectionMode();
+    }
+    this.renderRequestList();
+  }
+
+  // 退出选择模式
+  exitSelectionMode() {
+    this.isSelectionMode = false;
+    this.selectedRequests.clear();
+    this.bulkActionsBar.classList.add('hidden');
+    this.updateSelectedCount();
+    this.renderRequestList();
+  }
+
+  // 切换单个请求选择状态
+  toggleRequestSelection(requestId, checked) {
+    if (checked) {
+      this.selectedRequests.add(requestId);
+    } else {
+      this.selectedRequests.delete(requestId);
+    }
+    this.updateSelectedCount();
+  }
+
+  // 全选/取消全选
+  selectAllRequests() {
+    const filtered = this.getFilteredRequests();
+    if (this.selectedRequests.size === filtered.length) {
+      this.selectedRequests.clear();
+    } else {
+      filtered.forEach(r => this.selectedRequests.add(r.id));
+    }
+    this.updateSelectedCount();
+    this.renderRequestList();
+  }
+
+  // 更新选中计数
+  updateSelectedCount() {
+    this.selectedCountEl.textContent = this.selectedRequests.size;
+  }
+
+  // 批量删除
+  bulkDeleteRequests() {
+    if (this.selectedRequests.size === 0) return;
+    if (!confirm(`确定删除 ${this.selectedRequests.size} 条请求?`)) return;
+    
+    const idsToDelete = Array.from(this.selectedRequests);
+    chrome.runtime.sendMessage({ 
+      action: 'bulkDeleteRequests', 
+      requestIds: idsToDelete 
+    }, (response) => {
+      if (response?.success) {
+        this.requests = this.requests.filter(r => !idsToDelete.includes(r.id));
+        this.exitSelectionMode();
+        this.updateRequestCount();
+      }
+    });
+  }
+
+  // 批量导出
+  bulkExportRequests() {
+    const selectedData = this.requests.filter(r => this.selectedRequests.has(r.id));
+    if (selectedData.length > 0) {
+      this.exportAsJson(selectedData);
+    }
+  }
+
   toggleFilterPanel() {
     this.filterPanel.classList.toggle('hidden');
   }
@@ -547,18 +812,31 @@ class RequestRecordApp {
       return;
     }
 
+    // 超过阈值使用虚拟滚动
+    if (filtered.length > this.virtualScrollConfig.threshold) {
+      this.renderVirtualList(filtered);
+      return;
+    }
+
+    // 普通渲染
     this.requestList.innerHTML = filtered.map(req => {
       const urlParts = this.getDisplayUrl(req.url);
       const durationText = this.formatDuration(req.duration);
       const durationClass = this.getDurationClass(req.duration);
+      const isSelected = this.selectedRequests.has(req.id);
       
       return `
-        <div class="request-item" data-id="${req.id}">
+        <div class="request-item ${isSelected ? 'selected' : ''}" data-id="${req.id}">
+          ${this.isSelectionMode ? `
+            <input type="checkbox" class="request-checkbox" 
+                   data-id="${req.id}" 
+                   ${isSelected ? 'checked' : ''}>
+          ` : ''}
           <span class="method-badge ${req.method.toLowerCase()}">${req.method}</span>
           <div class="request-info">
             <div class="request-url-wrapper">
-              <div class="request-pathname">${this.escapeHtml(urlParts.pathname)}</div>
-              ${urlParts.queryParams ? `<div class="request-query">${this.escapeHtml(urlParts.queryParams)}</div>` : ''}
+              <div class="request-pathname">${this.highlightText(urlParts.pathname, this.searchQuery)}</div>
+              ${urlParts.queryParams ? `<div class="request-query">${this.highlightText(urlParts.queryParams, this.searchQuery)}</div>` : ''}
             </div>
             <div class="request-meta">
               <span>${this.formatTime(req.timestamp)}</span>
@@ -571,7 +849,10 @@ class RequestRecordApp {
     }).join('');
 
     this.requestList.querySelectorAll('.request-item').forEach(item => {
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
+        // 如果点击的是复选框，不触发详情
+        if (e.target.classList.contains('request-checkbox')) return;
+        
         const id = item.dataset.id;
         const request = this.requests.find(r => r.id === id);
         if (request) {
@@ -579,6 +860,16 @@ class RequestRecordApp {
         }
       });
     });
+    
+    // 批量选择模式下绑定复选框事件
+    if (this.isSelectionMode) {
+      this.requestList.querySelectorAll('.request-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          e.stopPropagation();
+          this.toggleRequestSelection(e.target.dataset.id, e.target.checked);
+        });
+      });
+    }
   }
 
   // 解析URL，分离pathname和查询参数

@@ -942,3 +942,139 @@ body {
   color: var(--accent-red);
   font-size: 11px;
 }
+
+/* Search Highlight */
+.search-highlight {
+  background: rgba(255, 215, 0, 0.3);
+  color: #ffd700;
+  padding: 1px 2px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.request-pathname mark.search-highlight,
+.request-query mark.search-highlight {
+  background: rgba(255, 215, 0, 0.4);
+}
+
+/* Recording Indicator - 录制状态指示条 */
+.recording-indicator {
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-red), var(--accent-orange), var(--accent-red));
+  background-size: 200% 100%;
+  animation: recordingProgress 2s linear infinite;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999;
+}
+
+.recording-indicator.hidden {
+  display: none;
+}
+
+@keyframes recordingProgress {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+
+/* Recording Button Glow - 录制按钮发光效果 */
+.btn-record.recording {
+  animation: recordingGlow 2s infinite;
+}
+
+@keyframes recordingGlow {
+  0%, 100% { box-shadow: 0 0 0 rgba(248, 81, 73, 0); }
+  50% { box-shadow: 0 0 16px rgba(248, 81, 73, 0.6); }
+}
+
+/* Recording Stats - 录制统计 */
+.recording-stats {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid var(--accent-red);
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--accent-red);
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.recording-stats.active {
+  display: flex;
+}
+
+.recording-stats .pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  animation: pulse 1.5s infinite;
+}
+
+/* New Request Flash - 新请求闪烁动画 */
+.request-item.new-request {
+  animation: newRequestFlash 0.8s ease;
+}
+
+@keyframes newRequestFlash {
+  0%, 100% { background: var(--bg-secondary); }
+  50% { background: rgba(88, 166, 255, 0.2); border-color: var(--accent-blue); }
+}
+
+/* Bulk Actions Bar - 批量操作栏 */
+.bulk-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: rgba(88, 166, 255, 0.1);
+  border-bottom: 1px solid var(--accent-blue);
+}
+
+.bulk-actions-bar.hidden {
+  display: none;
+}
+
+.bulk-info {
+  font-size: 12px;
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.bulk-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+/* Request Checkbox - 请求复选框 */
+.request-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-right: 8px;
+  accent-color: var(--accent-blue);
+}
+
+.request-item.selected {
+  background: rgba(88, 166, 255, 0.1);
+  border-color: var(--accent-blue);
+}
+
+/* Virtual Scroll Placeholder - 虚拟滚动占位符 */
+.request-placeholder {
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+  opacity: 0.3;
+}
+
+.request-item {
+  min-height: 60px;
+}
