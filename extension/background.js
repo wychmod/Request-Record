@@ -4,6 +4,7 @@
 let isRecording = false;
 let recordedRequests = [];
 let domainFilters = [];
+let isInitialized = false;
 
 // 静态资源文件扩展名列表
 const STATIC_EXTENSIONS = [
@@ -18,20 +19,28 @@ const STATIC_MIME_TYPES = [
   'image/', 'font/', 'audio/', 'video/'
 ];
 
-// 初始化时加载保存的数据
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['isRecording', 'recordedRequests', 'domainFilters'], (result) => {
-    isRecording = result.isRecording || false;
-    recordedRequests = result.recordedRequests || [];
-    domainFilters = result.domainFilters || [];
+// 初始化函数 - 从存储加载数据
+async function initializeState() {
+  if (isInitialized) return;
+  
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['isRecording', 'recordedRequests', 'domainFilters'], (result) => {
+      isRecording = result.isRecording || false;
+      recordedRequests = result.recordedRequests || [];
+      domainFilters = result.domainFilters || [];
+      isInitialized = true;
+      console.log('State initialized:', { isRecording, requestsCount: recordedRequests.length, filtersCount: domainFilters.length });
+      resolve();
+    });
   });
-});
+}
 
-// 启动时加载数据
-chrome.storage.local.get(['isRecording', 'recordedRequests', 'domainFilters'], (result) => {
-  isRecording = result.isRecording || false;
-  recordedRequests = result.recordedRequests || [];
-  domainFilters = result.domainFilters || [];
+// 立即初始化
+initializeState();
+
+// 安装时也初始化
+chrome.runtime.onInstalled.addListener(() => {
+  initializeState();
 });
 
 // 检查URL是否为静态资源
@@ -101,7 +110,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   ["requestBody"]
 );
 
-// 监听请求头
+// 监听请求头 - 添加 extraHeaders 以捕获 Cookie、Authorization 等敏感头
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
     if (!isRecording) return;
@@ -120,10 +129,10 @@ chrome.webRequest.onSendHeaders.addListener(
     }
   },
   { urls: ["<all_urls>"] },
-  ["requestHeaders"]
+  ["requestHeaders", "extraHeaders"]
 );
 
-// 监听响应头
+// 监听响应头 - 添加 extraHeaders 以捕获 Set-Cookie 等敏感头
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (!isRecording) return;
@@ -143,7 +152,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     }
   },
   { urls: ["<all_urls>"] },
-  ["responseHeaders"]
+  ["responseHeaders", "extraHeaders"]
 );
 
 // 保存请求到存储
@@ -153,12 +162,30 @@ function saveRequests() {
 
 // 消息处理
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // 确保状态已初始化
+  if (!isInitialized) {
+    initializeState().then(() => {
+      handleMessage(message, sendResponse);
+    });
+    return true; // 异步响应
+  }
+  
+  handleMessage(message, sendResponse);
+  return true; // 保持消息通道打开
+});
+
+// 处理消息的实际逻辑
+function handleMessage(message, sendResponse) {
   switch (message.action) {
     case 'getState':
-      sendResponse({
-        isRecording: isRecording,
-        requests: recordedRequests,
-        filters: domainFilters
+      // 每次获取状态时，先从storage刷新过滤器数据确保最新
+      chrome.storage.local.get(['domainFilters'], (result) => {
+        domainFilters = result.domainFilters || [];
+        sendResponse({
+          isRecording: isRecording,
+          requests: recordedRequests,
+          filters: domainFilters
+        });
       });
       break;
 
@@ -181,15 +208,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'setFilters':
-      domainFilters = message.filters;
-      chrome.storage.local.set({ domainFilters: domainFilters });
-      sendResponse({ success: true });
+      domainFilters = message.filters || [];
+      chrome.storage.local.set({ domainFilters: domainFilters }, () => {
+        console.log('Filters saved:', domainFilters);
+        sendResponse({ success: true });
+      });
       break;
 
     case 'clearFilters':
       domainFilters = [];
-      chrome.storage.local.set({ domainFilters: [] });
-      sendResponse({ success: true });
+      chrome.storage.local.set({ domainFilters: [] }, () => {
+        console.log('Filters cleared');
+        sendResponse({ success: true });
+      });
       break;
 
     case 'exportRequests':
@@ -199,5 +230,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     default:
       sendResponse({ error: 'Unknown action' });
   }
-  return true; // 保持消息通道打开
-});
+}

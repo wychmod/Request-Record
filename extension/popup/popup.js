@@ -6,6 +6,7 @@ class RequestRecordApp {
     this.requests = [];
     this.filters = [];
     this.searchQuery = '';
+    this.copyDataStore = new Map(); // 用于存储复制数据，避免HTML转义问题
     
     this.init();
   }
@@ -229,18 +230,24 @@ class RequestRecordApp {
       return;
     }
 
-    this.requestList.innerHTML = filtered.map(req => `
-      <div class="request-item" data-id="${req.id}">
-        <span class="method-badge ${req.method.toLowerCase()}">${req.method}</span>
-        <div class="request-info">
-          <div class="request-url">${this.escapeHtml(this.getDisplayUrl(req.url))}</div>
-          <div class="request-meta">
-            <span>${this.formatTime(req.timestamp)}</span>
-            ${req.statusCode ? `<span class="status-badge ${this.getStatusClass(req.statusCode)}">${req.statusCode}</span>` : ''}
+    this.requestList.innerHTML = filtered.map(req => {
+      const urlParts = this.getDisplayUrl(req.url);
+      return `
+        <div class="request-item" data-id="${req.id}">
+          <span class="method-badge ${req.method.toLowerCase()}">${req.method}</span>
+          <div class="request-info">
+            <div class="request-url-wrapper">
+              <div class="request-pathname">${this.escapeHtml(urlParts.pathname)}</div>
+              ${urlParts.queryParams ? `<div class="request-query">${this.escapeHtml(urlParts.queryParams)}</div>` : ''}
+            </div>
+            <div class="request-meta">
+              <span>${this.formatTime(req.timestamp)}</span>
+              ${req.statusCode ? `<span class="status-badge ${this.getStatusClass(req.statusCode)}">${req.statusCode}</span>` : ''}
+            </div>
           </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     this.requestList.querySelectorAll('.request-item').forEach(item => {
       item.addEventListener('click', () => {
@@ -253,12 +260,38 @@ class RequestRecordApp {
     });
   }
 
+  // 解析URL，分离pathname和查询参数
   getDisplayUrl(url) {
+    if (!url || typeof url !== 'string') {
+      return {
+        pathname: url || '(无URL)',
+        queryParams: ''
+      };
+    }
+    
     try {
       const urlObj = new URL(url);
-      return urlObj.pathname + urlObj.search;
-    } catch {
-      return url;
+      // 显示 host + pathname 以便更清晰识别请求
+      const pathname = urlObj.host + urlObj.pathname;
+      const search = urlObj.search;
+      
+      // 如果有查询参数，格式化显示
+      let queryParams = '';
+      if (search && search.length > 1) {
+        // 移除开头的 ? 并格式化参数
+        queryParams = search.substring(1);
+      }
+      
+      return {
+        pathname: pathname,
+        queryParams: queryParams
+      };
+    } catch (e) {
+      // URL解析失败，直接显示原始URL
+      return {
+        pathname: url,
+        queryParams: ''
+      };
     }
   }
 
@@ -273,17 +306,60 @@ class RequestRecordApp {
     return 'error';
   }
 
+  // 生成唯一的复制数据ID
+  generateCopyId() {
+    return 'copy_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  }
+
+  // 存储复制数据并返回ID
+  storeCopyData(data) {
+    const id = this.generateCopyId();
+    this.copyDataStore.set(id, data);
+    return id;
+  }
+
   showDetail(request) {
+    // 清空之前的复制数据存储
+    this.copyDataStore.clear();
+    
     this.detailContent.innerHTML = this.renderDetailContent(request);
     this.detailDrawer.classList.remove('hidden');
     
     // 绑定复制按钮事件
+    this.bindCopyEvents();
+  }
+
+  // 绑定所有复制按钮事件
+  bindCopyEvents() {
     this.detailContent.querySelectorAll('.copy-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.copyToClipboard(btn));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.copyToClipboard(btn);
+      });
     });
   }
 
   renderDetailContent(request) {
+    // 存储URL复制数据
+    const urlCopyId = this.storeCopyData(request.url);
+    
+    // 存储请求头复制数据（格式化为 key: value 形式）
+    const headersText = request.requestHeaders && request.requestHeaders.length > 0 
+      ? request.requestHeaders.map(h => `${h.name}: ${h.value}`).join('\n')
+      : '';
+    const headersCopyId = this.storeCopyData(headersText);
+    
+    // 存储响应头复制数据
+    const responseHeadersText = request.responseHeaders && request.responseHeaders.length > 0
+      ? request.responseHeaders.map(h => `${h.name}: ${h.value}`).join('\n')
+      : '';
+    const responseHeadersCopyId = this.storeCopyData(responseHeadersText);
+    
+    // 测试数据
+    const testData = this.getTestData(request);
+    const testDataJson = JSON.stringify(testData, null, 2);
+    const testDataCopyId = this.storeCopyData(testDataJson);
+
     return `
       <!-- 基本信息 -->
       <div class="detail-section">
@@ -310,7 +386,7 @@ class RequestRecordApp {
           <span class="detail-label">完整URL</span>
           <span class="detail-value url">${this.escapeHtml(request.url)}</span>
         </div>
-        <button class="copy-btn" data-copy="${this.escapeHtml(request.url)}">
+        <button class="copy-btn" data-copy-id="${urlCopyId}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
             <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
@@ -327,19 +403,20 @@ class RequestRecordApp {
             <line x1="4" y1="22" x2="4" y2="15"/>
           </svg>
           请求头 (Request Headers)
+          ${request.requestHeaders && request.requestHeaders.length > 0 ? `<span class="header-count">${request.requestHeaders.length}项</span>` : ''}
         </div>
+        ${this.renderHeadersList(request.requestHeaders, 'request')}
         ${request.requestHeaders && request.requestHeaders.length > 0 ? `
-          <div class="code-block">
-            ${request.requestHeaders.map(h => `<div class="header-item"><span class="name">${this.escapeHtml(h.name)}:</span><span class="value">${this.escapeHtml(h.value)}</span></div>`).join('')}
+          <div class="copy-all-wrapper">
+            <button class="copy-btn copy-all-btn" data-copy-id="${headersCopyId}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+              </svg>
+              复制全部请求头
+            </button>
           </div>
-          <button class="copy-btn" data-copy="${this.escapeHtml(JSON.stringify(request.requestHeaders, null, 2))}">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-            </svg>
-            复制请求头
-          </button>
-        ` : '<p class="no-results">无请求头信息</p>'}
+        ` : ''}
       </div>
 
       <!-- 请求体 -->
@@ -365,19 +442,20 @@ class RequestRecordApp {
             <path d="M22 4L12 14.01l-3-3"/>
           </svg>
           响应头 (Response Headers)
+          ${request.responseHeaders && request.responseHeaders.length > 0 ? `<span class="header-count">${request.responseHeaders.length}项</span>` : ''}
         </div>
+        ${this.renderHeadersList(request.responseHeaders, 'response')}
         ${request.responseHeaders && request.responseHeaders.length > 0 ? `
-          <div class="code-block">
-            ${request.responseHeaders.map(h => `<div class="header-item"><span class="name">${this.escapeHtml(h.name)}:</span><span class="value">${this.escapeHtml(h.value)}</span></div>`).join('')}
+          <div class="copy-all-wrapper">
+            <button class="copy-btn copy-all-btn" data-copy-id="${responseHeadersCopyId}">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+              </svg>
+              复制全部响应头
+            </button>
           </div>
-          <button class="copy-btn" data-copy="${this.escapeHtml(JSON.stringify(request.responseHeaders, null, 2))}">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-            </svg>
-            复制响应头
-          </button>
-        ` : '<p class="no-results">无响应头信息</p>'}
+        ` : ''}
       </div>
 
       <!-- 自动化测试数据 -->
@@ -389,8 +467,8 @@ class RequestRecordApp {
           </svg>
           自动化测试数据 (JSON)
         </div>
-        <div class="code-block">${this.escapeHtml(JSON.stringify(this.getTestData(request), null, 2))}</div>
-        <button class="copy-btn" data-copy="${this.escapeHtml(JSON.stringify(this.getTestData(request), null, 2))}">
+        <div class="code-block">${this.escapeHtml(testDataJson)}</div>
+        <button class="copy-btn" data-copy-id="${testDataCopyId}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
             <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
@@ -401,26 +479,70 @@ class RequestRecordApp {
     `;
   }
 
+  // 渲染请求头列表 - 每个头单独一行，支持单独复制
+  renderHeadersList(headers, type) {
+    if (!headers || headers.length === 0) {
+      return '<p class="no-results">无请求头信息</p>';
+    }
+
+    // 关键请求头高亮显示
+    const importantHeaders = ['cookie', 'authorization', 'content-type', 'user-agent', 'accept', 'origin', 'referer', 'x-requested-with', 'set-cookie'];
+
+    return `
+      <div class="headers-list">
+        ${headers.map(h => {
+          const isImportant = importantHeaders.includes(h.name.toLowerCase());
+          const copyId = this.storeCopyData(`${h.name}: ${h.value}`);
+          const valueCopyId = this.storeCopyData(h.value);
+          
+          return `
+            <div class="header-list-item ${isImportant ? 'important' : ''}">
+              <div class="header-content">
+                <span class="header-name">${this.escapeHtml(h.name)}</span>
+                <span class="header-value">${this.escapeHtml(h.value)}</span>
+              </div>
+              <div class="header-actions">
+                <button class="copy-btn-mini" data-copy-id="${valueCopyId}" title="复制值">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
   renderRequestBody(body) {
     if (!body) {
       return '<p class="no-results">无请求体</p>';
     }
 
     let content = '';
+    let displayContent = '';
+    
     if (body.type === 'formData') {
       content = JSON.stringify(body.data, null, 2);
+      displayContent = content;
     } else if (body.type === 'raw') {
       try {
         const parsed = JSON.parse(body.data);
         content = JSON.stringify(parsed, null, 2);
+        displayContent = content;
       } catch {
         content = body.data;
+        displayContent = body.data;
       }
     }
 
+    const bodyCopyId = this.storeCopyData(content);
+
     return `
-      <div class="code-block">${this.escapeHtml(content)}</div>
-      <button class="copy-btn" data-copy="${this.escapeHtml(content)}">
+      <div class="code-block">${this.escapeHtml(displayContent)}</div>
+      <button class="copy-btn" data-copy-id="${bodyCopyId}">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
           <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
@@ -431,50 +553,122 @@ class RequestRecordApp {
   }
 
   getTestData(request) {
-    const urlObj = new URL(request.url);
+    let urlObj;
+    try {
+      urlObj = new URL(request.url);
+    } catch {
+      return { url: request.url, method: request.method };
+    }
+    
     const queryParams = {};
     urlObj.searchParams.forEach((value, key) => {
       queryParams[key] = value;
     });
 
-    return {
+    const result = {
       method: request.method,
       url: request.url,
       path: urlObj.pathname,
-      host: urlObj.host,
-      queryParams: Object.keys(queryParams).length > 0 ? queryParams : undefined,
-      headers: request.requestHeaders ? request.requestHeaders.reduce((acc, h) => {
+      host: urlObj.host
+    };
+
+    if (Object.keys(queryParams).length > 0) {
+      result.queryParams = queryParams;
+    }
+
+    if (request.requestHeaders && request.requestHeaders.length > 0) {
+      result.headers = request.requestHeaders.reduce((acc, h) => {
         acc[h.name] = h.value;
         return acc;
-      }, {}) : undefined,
-      body: request.requestBody ? (request.requestBody.type === 'formData' ? request.requestBody.data : request.requestBody.data) : undefined
-    };
+      }, {});
+    }
+
+    if (request.requestBody) {
+      if (request.requestBody.type === 'formData') {
+        result.body = request.requestBody.data;
+      } else if (request.requestBody.type === 'raw') {
+        try {
+          result.body = JSON.parse(request.requestBody.data);
+        } catch {
+          result.body = request.requestBody.data;
+        }
+      }
+    }
+
+    return result;
   }
 
   closeDrawer() {
     this.detailDrawer.classList.add('hidden');
   }
 
+  // 改进的复制功能 - 从存储中获取原始数据
   copyToClipboard(btn) {
-    const text = btn.dataset.copy;
-    navigator.clipboard.writeText(text).then(() => {
-      btn.classList.add('copied');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = `
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 6L9 17l-5-5"/>
-        </svg>
-        已复制
-      `;
-      setTimeout(() => {
-        btn.classList.remove('copied');
-        btn.innerHTML = originalText;
-      }, 2000);
-    });
+    const copyId = btn.dataset.copyId;
+    const text = this.copyDataStore.get(copyId);
+    
+    if (!text) {
+      console.error('复制数据未找到:', copyId);
+      return;
+    }
+
+    // 使用 Clipboard API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(() => this.showCopySuccess(btn))
+        .catch(err => {
+          console.error('Clipboard API 失败:', err);
+          this.fallbackCopy(text, btn);
+        });
+    } else {
+      this.fallbackCopy(text, btn);
+    }
+  }
+
+  // 备用复制方法 - 使用 execCommand
+  fallbackCopy(text, btn) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    
+    try {
+      const successful = document.execCommand('copy');
+      if (successful) {
+        this.showCopySuccess(btn);
+      } else {
+        console.error('execCommand 复制失败');
+      }
+    } catch (err) {
+      console.error('execCommand 错误:', err);
+    }
+    
+    document.body.removeChild(textarea);
+  }
+
+  // 显示复制成功状态
+  showCopySuccess(btn) {
+    const originalHtml = btn.innerHTML;
+    btn.classList.add('copied');
+    btn.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 6L9 17l-5-5"/>
+      </svg>
+      已复制
+    `;
+    
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.innerHTML = originalHtml;
+    }, 2000);
   }
 
   escapeHtml(str) {
-    if (typeof str !== 'string') return str;
+    if (typeof str !== 'string') return String(str);
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
@@ -482,16 +676,20 @@ class RequestRecordApp {
 }
 
 // 初始化应用
+let app;
 document.addEventListener('DOMContentLoaded', () => {
-  new RequestRecordApp();
+  app = new RequestRecordApp();
+  window.app = app;
 });
 
-// 定期刷新状态
+// 定期刷新请求列表状态（保持过滤器不变）
 setInterval(() => {
   chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
     if (response && window.app) {
       window.app.requests = response.requests || [];
-      window.app.render();
+      // 只更新请求计数和列表，不重新渲染过滤器（避免用户输入被打断）
+      window.app.updateRequestCount();
+      window.app.renderRequestList();
     }
   });
 }, 2000);

@@ -399,6 +399,35 @@ body {
   min-width: 0;
 }
 
+/* URL分离显示 */
+.request-url-wrapper {
+  min-width: 0;
+}
+
+.request-pathname {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.request-query {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  display: inline-block;
+  max-width: 100%;
+}
+
 .request-url {
   font-size: 12px;
   color: var(--text-primary);
@@ -566,23 +595,83 @@ body {
   overflow-y: auto;
 }
 
-.header-item {
-  display: flex;
-  padding: 4px 0;
-  font-size: 11px;
+/* Headers List - 新的列表式展示 */
+.headers-list {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  max-height: 250px;
+  overflow-y: auto;
 }
 
-.header-item .name {
-  color: var(--accent-purple);
+.header-list-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  transition: var(--transition);
+}
+
+.header-list-item:last-child {
+  border-bottom: none;
+}
+
+.header-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.header-list-item.important {
+  background: rgba(88, 166, 255, 0.05);
+}
+
+.header-list-item.important:hover {
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.header-content {
+  flex: 1;
+  min-width: 0;
   margin-right: 8px;
 }
 
-.header-item .value {
-  color: var(--text-secondary);
-  word-break: break-all;
+.header-name {
+  display: block;
+  color: var(--accent-purple);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 
-/* Copy Button */
+.header-list-item.important .header-name {
+  color: var(--accent-blue);
+}
+
+.header-value {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.header-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.header-count {
+  margin-left: auto;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+/* Copy Buttons */
 .copy-btn {
   display: inline-flex;
   align-items: center;
@@ -606,6 +695,48 @@ body {
   background: rgba(63, 185, 80, 0.15);
   border-color: var(--method-get);
   color: var(--method-get);
+}
+
+.copy-btn-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.copy-btn-mini:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.copy-btn-mini.copied {
+  color: var(--method-get);
+}
+
+.copy-all-wrapper {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.copy-all-btn {
+  background: rgba(88, 166, 255, 0.1);
+  border-color: rgba(88, 166, 255, 0.3);
+  color: var(--accent-blue);
+}
+
+.copy-all-btn:hover {
+  background: rgba(88, 166, 255, 0.2);
+  border-color: var(--accent-blue);
 }
 
 /* No Results */
