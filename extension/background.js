@@ -71,6 +71,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     if (details.tabId < 0) return;
     if (isStaticResource(details.url)) return;
     if (!matchesDomainFilter(details.url)) return;
+    if (details.method === 'OPTIONS') return; // 过滤OPTIONS预检请求
 
     const requestId = details.requestId;
     const startTime = Date.now();
@@ -124,12 +125,13 @@ chrome.webRequest.onBeforeRequest.addListener(
   ["requestBody"]
 );
 
-// 监听请求头
+// 监听请求头（包括Cookie）
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
     if (!isRecording) return;
     if (details.tabId < 0) return;
     if (isStaticResource(details.url)) return;
+    if (details.method === 'OPTIONS') return; // 过滤OPTIONS预检请求
 
     const request = recordedRequests.find(r => 
       r.requestId === details.requestId &&
@@ -137,6 +139,12 @@ chrome.webRequest.onSendHeaders.addListener(
     );
     
     if (request && details.requestHeaders) {
+      // 将Cookie头放在首位
+      const cookieIndex = details.requestHeaders.findIndex(h => h.name.toLowerCase() === 'cookie');
+      if (cookieIndex > 0) {
+        const cookieHeader = details.requestHeaders.splice(cookieIndex, 1)[0];
+        details.requestHeaders.unshift(cookieHeader);
+      }
       request.requestHeaders = details.requestHeaders;
       saveRequests();
     }
@@ -151,6 +159,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     if (!isRecording) return;
     if (details.tabId < 0) return;
     if (isStaticResource(details.url)) return;
+    if (details.method === 'OPTIONS') return; // 过滤OPTIONS预检请求
 
     const request = recordedRequests.find(r => 
       r.requestId === details.requestId &&
@@ -174,6 +183,7 @@ chrome.webRequest.onCompleted.addListener(
     if (!isRecording) return;
     if (details.tabId < 0) return;
     if (isStaticResource(details.url)) return;
+    if (details.method === 'OPTIONS') return; // 过滤OPTIONS预检请求
 
     const request = recordedRequests.find(r => r.requestId === details.requestId);
     

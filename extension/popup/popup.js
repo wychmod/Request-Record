@@ -655,7 +655,7 @@ class RequestRecordApp {
 
   // 绑定所有复制按钮事件
   bindCopyEvents() {
-    this.detailContent.querySelectorAll('.copy-btn').forEach(btn => {
+    this.detailContent.querySelectorAll('.copy-btn, .copy-btn-mini').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.copyToClipboard(btn);
