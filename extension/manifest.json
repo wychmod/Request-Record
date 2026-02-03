@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Request Record",
+  "version": "1.0.0",
+  "description": "记录网页HTTP请求，帮助测试工程师快速编写自动化测试用例",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Request Record"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Record</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 头部 -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+            <path d="M12 2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M12 18V22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M2 12H6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M18 12H22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h1 class="title">Request Record</h1>
+      </div>
+      <div class="header-right">
+        <span id="requestCount" class="badge">0</span>
+      </div>
+    </header>
+
+    <!-- 控制栏 -->
+    <div class="controls">
+      <button id="recordBtn" class="btn btn-record">
+        <span class="btn-icon record-icon"></span>
+        <span class="btn-text">开始记录</span>
+      </button>
+      <button id="clearBtn" class="btn btn-secondary" title="清除记录">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+        </svg>
+      </button>
+      <button id="exportBtn" class="btn btn-secondary" title="导出JSON">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+        </svg>
+      </button>
+      <button id="filterBtn" class="btn btn-secondary" title="过滤设置">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 搜索栏 -->
+    <div class="search-bar">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/>
+        <path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input type="text" id="searchInput" class="search-input" placeholder="搜索请求URL或方法...">
+    </div>
+
+    <!-- 过滤器面板 -->
+    <div id="filterPanel" class="filter-panel hidden">
+      <div class="filter-header">
+        <span>域名过滤 (模糊匹配)</span>
+        <button id="closeFilterBtn" class="btn-close">&times;</button>
+      </div>
+      <div class="filter-input-group">
+        <input type="text" id="filterInput" class="filter-input" placeholder="输入域名关键词，如: api.example">
+        <button id="addFilterBtn" class="btn btn-primary btn-sm">添加</button>
+      </div>
+      <div id="filterTags" class="filter-tags"></div>
+      <button id="clearFiltersBtn" class="btn btn-danger btn-sm">清除所有过滤条件</button>
+    </div>
+
+    <!-- 请求列表 -->
+    <div id="requestList" class="request-list">
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 6v6l4 2"/>
+        </svg>
+        <p>点击"开始记录"捕获HTTP请求</p>
+      </div>
+    </div>
+
+    <!-- 请求详情抽屉 -->
+    <div id="detailDrawer" class="drawer hidden">
+      <div class="drawer-overlay"></div>
+      <div class="drawer-content">
+        <div class="drawer-header">
+          <h2>请求详情</h2>
+          <button id="closeDrawerBtn" class="btn-close">&times;</button>
+        </div>
+        <div id="detailContent" class="drawer-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
