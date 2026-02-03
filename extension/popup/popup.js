@@ -6,6 +6,9 @@ class RequestRecordApp {
     this.requests = [];
     this.filters = [];
     this.searchQuery = '';
+    this.methodFilter = '';
+    this.statusFilter = '';
+    this.currentRequestId = null; // 当前查看的请求ID
     this.copyDataStore = new Map(); // 用于存储复制数据，避免HTML转义问题
     
     this.init();
@@ -14,6 +17,7 @@ class RequestRecordApp {
   async init() {
     this.bindElements();
     this.bindEvents();
+    this.setupMessageListener();
     await this.loadState();
     this.render();
   }
@@ -22,8 +26,15 @@ class RequestRecordApp {
     this.recordBtn = document.getElementById('recordBtn');
     this.clearBtn = document.getElementById('clearBtn');
     this.exportBtn = document.getElementById('exportBtn');
+    this.exportMenu = document.getElementById('exportMenu');
+    this.exportJsonBtn = document.getElementById('exportJsonBtn');
+    this.exportHarBtn = document.getElementById('exportHarBtn');
     this.filterBtn = document.getElementById('filterBtn');
+    this.filterIndicator = document.getElementById('filterIndicator');
     this.searchInput = document.getElementById('searchInput');
+    this.clearSearchBtn = document.getElementById('clearSearchBtn');
+    this.methodFilterSelect = document.getElementById('methodFilter');
+    this.statusFilterSelect = document.getElementById('statusFilter');
     this.requestList = document.getElementById('requestList');
     this.requestCount = document.getElementById('requestCount');
     this.filterPanel = document.getElementById('filterPanel');
@@ -35,6 +46,7 @@ class RequestRecordApp {
     this.detailDrawer = document.getElementById('detailDrawer');
     this.detailContent = document.getElementById('detailContent');
     this.closeDrawerBtn = document.getElementById('closeDrawerBtn');
+    this.deleteRequestBtn = document.getElementById('deleteRequestBtn');
   }
 
   bindEvents() {
@@ -44,8 +56,16 @@ class RequestRecordApp {
     // 清除记录
     this.clearBtn.addEventListener('click', () => this.clearRequests());
     
-    // 导出
-    this.exportBtn.addEventListener('click', () => this.exportRequests());
+    // 导出下拉菜单
+    this.exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleExportMenu();
+    });
+    this.exportJsonBtn.addEventListener('click', () => this.exportRequests('json'));
+    this.exportHarBtn.addEventListener('click', () => this.exportRequests('har'));
+    
+    // 点击其他地方关闭导出菜单
+    document.addEventListener('click', () => this.closeExportMenu());
     
     // 过滤器
     this.filterBtn.addEventListener('click', () => this.toggleFilterPanel());
@@ -59,12 +79,87 @@ class RequestRecordApp {
     // 搜索
     this.searchInput.addEventListener('input', (e) => {
       this.searchQuery = e.target.value;
+      this.updateClearSearchBtn();
+      this.renderRequestList();
+    });
+    
+    // 清除搜索
+    this.clearSearchBtn.addEventListener('click', () => {
+      this.searchQuery = '';
+      this.searchInput.value = '';
+      this.updateClearSearchBtn();
+      this.renderRequestList();
+    });
+    
+    // 方法筛选
+    this.methodFilterSelect.addEventListener('change', (e) => {
+      this.methodFilter = e.target.value;
+      this.updateFilterIndicator();
+      this.renderRequestList();
+    });
+    
+    // 状态码筛选
+    this.statusFilterSelect.addEventListener('change', (e) => {
+      this.statusFilter = e.target.value;
+      this.updateFilterIndicator();
       this.renderRequestList();
     });
     
     // 抽屉
     this.closeDrawerBtn.addEventListener('click', () => this.closeDrawer());
     this.detailDrawer.querySelector('.drawer-overlay').addEventListener('click', () => this.closeDrawer());
+    
+    // 删除单条请求
+    this.deleteRequestBtn.addEventListener('click', () => this.deleteCurrentRequest());
+  }
+
+  // 设置事件驱动的消息监听
+  setupMessageListener() {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.action === 'stateUpdated') {
+        this.refreshRequests();
+      }
+    });
+  }
+
+  // 刷新请求列表（不重新加载整个状态）
+  refreshRequests() {
+    chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
+      if (response) {
+        this.requests = response.requests || [];
+        this.updateRequestCount();
+        this.renderRequestList();
+      }
+    });
+  }
+
+  // 更新清除搜索按钮显示状态
+  updateClearSearchBtn() {
+    if (this.searchQuery) {
+      this.clearSearchBtn.classList.remove('hidden');
+    } else {
+      this.clearSearchBtn.classList.add('hidden');
+    }
+  }
+
+  // 更新过滤器指示器
+  updateFilterIndicator() {
+    const hasActiveFilters = this.methodFilter || this.statusFilter || this.filters.length > 0;
+    if (hasActiveFilters) {
+      this.filterIndicator.classList.remove('hidden');
+    } else {
+      this.filterIndicator.classList.add('hidden');
+    }
+  }
+
+  // 切换导出菜单
+  toggleExportMenu() {
+    this.exportMenu.classList.toggle('hidden');
+  }
+
+  // 关闭导出菜单
+  closeExportMenu() {
+    this.exportMenu.classList.add('hidden');
   }
 
   async loadState() {
@@ -85,6 +180,8 @@ class RequestRecordApp {
     this.updateRequestCount();
     this.renderRequestList();
     this.renderFilterTags();
+    this.updateFilterIndicator();
+    this.updateClearSearchBtn();
   }
 
   updateRecordButton() {
@@ -126,21 +223,34 @@ class RequestRecordApp {
     }
   }
 
-  exportRequests() {
+  exportRequests(format = 'json') {
+    this.closeExportMenu();
+    
     if (this.requests.length === 0) {
       alert('没有可导出的请求记录');
       return;
     }
 
     const filteredRequests = this.getFilteredRequests();
+    
+    if (format === 'har') {
+      this.exportAsHar(filteredRequests);
+    } else {
+      this.exportAsJson(filteredRequests);
+    }
+  }
+
+  // 导出为JSON格式
+  exportAsJson(requests) {
     const exportData = {
       exportTime: new Date().toISOString(),
-      totalRequests: filteredRequests.length,
-      requests: filteredRequests.map(req => ({
+      totalRequests: requests.length,
+      requests: requests.map(req => ({
         url: req.url,
         method: req.method,
         timestamp: req.timestamp,
         statusCode: req.statusCode,
+        duration: req.duration,
         requestHeaders: req.requestHeaders,
         responseHeaders: req.responseHeaders,
         requestBody: req.requestBody
@@ -154,6 +264,177 @@ class RequestRecordApp {
     a.download = `request-record-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // 导出为HAR格式
+  exportAsHar(requests) {
+    const har = {
+      log: {
+        version: '1.2',
+        creator: {
+          name: 'Request Record',
+          version: '1.0'
+        },
+        entries: requests.map(req => this.convertToHarEntry(req))
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `request-record-${new Date().toISOString().slice(0, 10)}.har`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 将请求转换为HAR条目格式
+  convertToHarEntry(req) {
+    const startedDateTime = req.timestamp || new Date().toISOString();
+    const time = req.duration || 0;
+
+    // 解析URL获取查询参数
+    let queryString = [];
+    try {
+      const urlObj = new URL(req.url);
+      urlObj.searchParams.forEach((value, name) => {
+        queryString.push({ name, value });
+      });
+    } catch (e) {}
+
+    // 构建请求体
+    let postData = null;
+    if (req.requestBody) {
+      if (req.requestBody.type === 'formData') {
+        postData = {
+          mimeType: 'application/x-www-form-urlencoded',
+          params: Object.entries(req.requestBody.data || {}).map(([name, value]) => ({
+            name,
+            value: Array.isArray(value) ? value[0] : value
+          }))
+        };
+      } else if (req.requestBody.type === 'raw') {
+        postData = {
+          mimeType: this.getContentType(req.requestHeaders) || 'application/json',
+          text: req.requestBody.data
+        };
+      }
+    }
+
+    return {
+      startedDateTime,
+      time,
+      request: {
+        method: req.method,
+        url: req.url,
+        httpVersion: 'HTTP/1.1',
+        cookies: [],
+        headers: (req.requestHeaders || []).map(h => ({ name: h.name, value: h.value })),
+        queryString,
+        postData,
+        headersSize: -1,
+        bodySize: postData ? (postData.text || '').length : 0
+      },
+      response: {
+        status: req.statusCode || 0,
+        statusText: this.getStatusText(req.statusCode),
+        httpVersion: 'HTTP/1.1',
+        cookies: [],
+        headers: (req.responseHeaders || []).map(h => ({ name: h.name, value: h.value })),
+        content: {
+          size: 0,
+          mimeType: this.getResponseContentType(req.responseHeaders) || 'text/plain'
+        },
+        redirectURL: '',
+        headersSize: -1,
+        bodySize: -1
+      },
+      cache: {},
+      timings: {
+        send: 0,
+        wait: time,
+        receive: 0
+      }
+    };
+  }
+
+  // 获取请求Content-Type
+  getContentType(headers) {
+    if (!headers) return null;
+    const ct = headers.find(h => h.name.toLowerCase() === 'content-type');
+    return ct ? ct.value : null;
+  }
+
+  // 获取响应Content-Type
+  getResponseContentType(headers) {
+    return this.getContentType(headers);
+  }
+
+  // 获取状态码文本
+  getStatusText(code) {
+    const statusTexts = {
+      200: 'OK', 201: 'Created', 204: 'No Content',
+      301: 'Moved Permanently', 302: 'Found', 304: 'Not Modified',
+      400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found',
+      500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable'
+    };
+    return statusTexts[code] || '';
+  }
+
+  // 生成cURL命令
+  generateCurl(request) {
+    let curl = `curl '${request.url}'`;
+    
+    // 添加请求方法（GET以外的需要指定）
+    if (request.method !== 'GET') {
+      curl += ` \\\n  -X ${request.method}`;
+    }
+    
+    // 添加请求头
+    if (request.requestHeaders && request.requestHeaders.length > 0) {
+      request.requestHeaders.forEach(header => {
+        // 跳过一些自动生成的头
+        const skipHeaders = ['host', 'content-length', 'connection'];
+        if (!skipHeaders.includes(header.name.toLowerCase())) {
+          curl += ` \\\n  -H '${header.name}: ${header.value.replace(/'/g, "\\'")}'`;
+        }
+      });
+    }
+    
+    // 添加请求体
+    if (request.requestBody) {
+      if (request.requestBody.type === 'formData') {
+        const formData = request.requestBody.data;
+        Object.entries(formData).forEach(([key, value]) => {
+          const val = Array.isArray(value) ? value[0] : value;
+          curl += ` \\\n  --data-urlencode '${key}=${val}'`;
+        });
+      } else if (request.requestBody.type === 'raw') {
+        const data = request.requestBody.data.replace(/'/g, "\\'");
+        curl += ` \\\n  --data-raw '${data}'`;
+      }
+    }
+    
+    return curl;
+  }
+
+  // 删除当前查看的请求
+  deleteCurrentRequest() {
+    if (!this.currentRequestId) return;
+    
+    if (confirm('确定要删除此请求吗？')) {
+      chrome.runtime.sendMessage({ 
+        action: 'deleteRequest', 
+        requestId: this.currentRequestId 
+      }, (response) => {
+        if (response && response.success) {
+          this.requests = this.requests.filter(r => r.id !== this.currentRequestId);
+          this.closeDrawer();
+          this.updateRequestCount();
+          this.renderRequestList();
+        }
+      });
+    }
   }
 
   toggleFilterPanel() {
@@ -203,6 +484,7 @@ class RequestRecordApp {
   getFilteredRequests() {
     let filtered = [...this.requests];
 
+    // 搜索过滤
     if (this.searchQuery) {
       const query = this.searchQuery.toLowerCase();
       filtered = filtered.filter(req => 
@@ -211,7 +493,42 @@ class RequestRecordApp {
       );
     }
 
+    // 方法过滤
+    if (this.methodFilter) {
+      filtered = filtered.filter(req => req.method === this.methodFilter);
+    }
+
+    // 状态码过滤
+    if (this.statusFilter) {
+      filtered = filtered.filter(req => {
+        if (!req.statusCode) return false;
+        const code = req.statusCode;
+        switch (this.statusFilter) {
+          case '2xx': return code >= 200 && code < 300;
+          case '3xx': return code >= 300 && code < 400;
+          case '4xx': return code >= 400 && code < 500;
+          case '5xx': return code >= 500 && code < 600;
+          default: return true;
+        }
+      });
+    }
+
     return filtered.reverse(); // 最新的在前面
+  }
+
+  // 格式化耗时显示
+  formatDuration(duration) {
+    if (duration === null || duration === undefined) return null;
+    if (duration < 1000) return `${duration}ms`;
+    return `${(duration / 1000).toFixed(2)}s`;
+  }
+
+  // 获取耗时等级样式
+  getDurationClass(duration) {
+    if (duration === null || duration === undefined) return '';
+    if (duration < 300) return 'fast';
+    if (duration < 1000) return 'medium';
+    return 'slow';
   }
 
   renderRequestList() {
@@ -224,7 +541,7 @@ class RequestRecordApp {
             <circle cx="12" cy="12" r="10"/>
             <path d="M12 6v6l4 2"/>
           </svg>
-          <p>${this.searchQuery ? '没有匹配的请求' : '点击"开始记录"捕获HTTP请求'}</p>
+          <p>${this.searchQuery || this.methodFilter || this.statusFilter ? '没有匹配的请求' : '点击"开始记录"捕获HTTP请求'}</p>
         </div>
       `;
       return;
@@ -232,6 +549,9 @@ class RequestRecordApp {
 
     this.requestList.innerHTML = filtered.map(req => {
       const urlParts = this.getDisplayUrl(req.url);
+      const durationText = this.formatDuration(req.duration);
+      const durationClass = this.getDurationClass(req.duration);
+      
       return `
         <div class="request-item" data-id="${req.id}">
           <span class="method-badge ${req.method.toLowerCase()}">${req.method}</span>
@@ -243,6 +563,7 @@ class RequestRecordApp {
             <div class="request-meta">
               <span>${this.formatTime(req.timestamp)}</span>
               ${req.statusCode ? `<span class="status-badge ${this.getStatusClass(req.statusCode)}">${req.statusCode}</span>` : ''}
+              ${durationText ? `<span class="duration-badge ${durationClass}">${durationText}</span>` : ''}
             </div>
           </div>
         </div>
@@ -322,6 +643,9 @@ class RequestRecordApp {
     // 清空之前的复制数据存储
     this.copyDataStore.clear();
     
+    // 存储当前请求ID用于删除操作
+    this.currentRequestId = request.id;
+    
     this.detailContent.innerHTML = this.renderDetailContent(request);
     this.detailDrawer.classList.remove('hidden');
     
@@ -343,6 +667,10 @@ class RequestRecordApp {
     // 存储URL复制数据
     const urlCopyId = this.storeCopyData(request.url);
     
+    // 生成并存储cURL命令
+    const curlCommand = this.generateCurl(request);
+    const curlCopyId = this.storeCopyData(curlCommand);
+    
     // 存储请求头复制数据（格式化为 key: value 形式）
     const headersText = request.requestHeaders && request.requestHeaders.length > 0 
       ? request.requestHeaders.map(h => `${h.name}: ${h.value}`).join('\n')
@@ -359,6 +687,10 @@ class RequestRecordApp {
     const testData = this.getTestData(request);
     const testDataJson = JSON.stringify(testData, null, 2);
     const testDataCopyId = this.storeCopyData(testDataJson);
+    
+    // 格式化耗时显示
+    const durationText = this.formatDuration(request.duration);
+    const durationClass = this.getDurationClass(request.duration);
 
     return `
       <!-- 基本信息 -->
@@ -376,23 +708,39 @@ class RequestRecordApp {
         </div>
         <div class="detail-item">
           <span class="detail-label">状态码</span>
-          <span class="detail-value">${request.statusCode || 'N/A'}</span>
+          <span class="detail-value">${request.statusCode || 'N/A'}${request.error ? ` <span class="error-text">(${request.error})</span>` : ''}</span>
         </div>
         <div class="detail-item">
           <span class="detail-label">时间</span>
           <span class="detail-value">${new Date(request.timestamp).toLocaleString('zh-CN')}</span>
         </div>
+        ${durationText ? `
+        <div class="detail-item">
+          <span class="detail-label">耗时</span>
+          <span class="detail-value"><span class="duration-badge ${durationClass}">${durationText}</span></span>
+        </div>
+        ` : ''}
         <div class="detail-item">
           <span class="detail-label">完整URL</span>
           <span class="detail-value url">${this.escapeHtml(request.url)}</span>
         </div>
-        <button class="copy-btn" data-copy-id="${urlCopyId}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-          复制URL
-        </button>
+        <div class="detail-actions">
+          <button class="copy-btn" data-copy-id="${urlCopyId}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+            </svg>
+            复制URL
+          </button>
+          <button class="copy-btn copy-curl-btn" data-copy-id="${curlCopyId}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 9l3 3-3 3"/>
+              <path d="M13 15h3"/>
+              <rect x="3" y="4" width="18" height="16" rx="2"/>
+            </svg>
+            复制cURL
+          </button>
+        </div>
       </div>
 
       <!-- 请求头 -->
@@ -600,6 +948,7 @@ class RequestRecordApp {
 
   closeDrawer() {
     this.detailDrawer.classList.add('hidden');
+    this.currentRequestId = null;
   }
 
   // 改进的复制功能 - 从存储中获取原始数据
@@ -682,14 +1031,5 @@ document.addEventListener('DOMContentLoaded', () => {
   window.app = app;
 });
 
-// 定期刷新请求列表状态（保持过滤器不变）
-setInterval(() => {
-  chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
-    if (response && window.app) {
-      window.app.requests = response.requests || [];
-      // 只更新请求计数和列表，不重新渲染过滤器（避免用户输入被打断）
-      window.app.updateRequestCount();
-      window.app.renderRequestList();
-    }
-  });
-}, 2000);
+// 使用事件驱动更新，不再需要轮询
+// background.js 会在请求状态变化时发送 stateUpdated 消息

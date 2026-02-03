@@ -39,25 +39,59 @@
           <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
         </svg>
       </button>
-      <button id="exportBtn" class="btn btn-secondary" title="导出JSON">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-        </svg>
-      </button>
+      <div class="export-dropdown">
+        <button id="exportBtn" class="btn btn-secondary" title="导出">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+          <svg class="dropdown-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div id="exportMenu" class="export-menu hidden">
+          <button id="exportJsonBtn" class="export-menu-item">导出 JSON</button>
+          <button id="exportHarBtn" class="export-menu-item">导出 HAR</button>
+        </div>
+      </div>
       <button id="filterBtn" class="btn btn-secondary" title="过滤设置">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
         </svg>
+        <span id="filterIndicator" class="filter-indicator hidden"></span>
       </button>
     </div>
 
-    <!-- 搜索栏 -->
-    <div class="search-bar">
-      <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="11" cy="11" r="8"/>
-        <path d="M21 21l-4.35-4.35"/>
-      </svg>
-      <input type="text" id="searchInput" class="search-input" placeholder="搜索请求URL或方法...">
+    <!-- 搜索和筛选栏 -->
+    <div class="search-filter-bar">
+      <div class="search-wrapper">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="M21 21l-4.35-4.35"/>
+        </svg>
+        <input type="text" id="searchInput" class="search-input" placeholder="搜索请求URL...">
+        <button id="clearSearchBtn" class="clear-search-btn hidden" title="清除搜索">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="quick-filters">
+        <select id="methodFilter" class="quick-filter-select" title="按方法筛选">
+          <option value="">全部方法</option>
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+          <option value="PUT">PUT</option>
+          <option value="DELETE">DELETE</option>
+          <option value="PATCH">PATCH</option>
+        </select>
+        <select id="statusFilter" class="quick-filter-select" title="按状态码筛选">
+          <option value="">全部状态</option>
+          <option value="2xx">2xx 成功</option>
+          <option value="3xx">3xx 重定向</option>
+          <option value="4xx">4xx 客户端错误</option>
+          <option value="5xx">5xx 服务器错误</option>
+        </select>
+      </div>
     </div>
 
     <!-- 过滤器面板 -->
@@ -91,7 +125,14 @@
       <div class="drawer-content">
         <div class="drawer-header">
           <h2>请求详情</h2>
-          <button id="closeDrawerBtn" class="btn-close">&times;</button>
+          <div class="drawer-actions">
+            <button id="deleteRequestBtn" class="btn btn-danger btn-sm" title="删除此请求">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </button>
+            <button id="closeDrawerBtn" class="btn-close">&times;</button>
+          </div>
         </div>
         <div id="detailContent" class="drawer-body"></div>
       </div>

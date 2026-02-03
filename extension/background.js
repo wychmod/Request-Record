@@ -5,18 +5,13 @@ let isRecording = false;
 let recordedRequests = [];
 let domainFilters = [];
 let isInitialized = false;
+let pendingRequests = new Map(); // 用于跟踪请求开始时间
 
 // 静态资源文件扩展名列表
 const STATIC_EXTENSIONS = [
   '.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2',
   '.ttf', '.eot', '.otf', '.map', '.webp', '.mp3', '.mp4', '.avi', '.mov', '.webm',
   '.pdf', '.zip', '.rar', '.7z', '.tar', '.gz'
-];
-
-// 静态资源MIME类型
-const STATIC_MIME_TYPES = [
-  'text/css', 'text/javascript', 'application/javascript', 'application/x-javascript',
-  'image/', 'font/', 'audio/', 'video/'
 ];
 
 // 初始化函数 - 从存储加载数据
@@ -62,25 +57,43 @@ function matchesDomainFilter(url) {
   }
 }
 
+// 通知popup更新
+function notifyPopup() {
+  chrome.runtime.sendMessage({ action: 'stateUpdated' }).catch(() => {
+    // popup可能未打开，忽略错误
+  });
+}
+
 // 监听网络请求
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (!isRecording) return;
-    if (details.tabId < 0) return; // 忽略非标签页请求
+    if (details.tabId < 0) return;
     if (isStaticResource(details.url)) return;
     if (!matchesDomainFilter(details.url)) return;
 
+    const requestId = details.requestId;
+    const startTime = Date.now();
+    
+    // 记录请求开始时间
+    pendingRequests.set(requestId, startTime);
+
     const request = {
-      id: Date.now() + Math.random().toString(36).substr(2, 9),
+      id: requestId + '_' + startTime,
+      requestId: requestId,
       url: details.url,
       method: details.method,
       type: details.type,
       timestamp: new Date().toISOString(),
+      startTime: startTime,
+      endTime: null,
+      duration: null,
       tabId: details.tabId,
       requestBody: null,
       requestHeaders: [],
       responseHeaders: [],
-      statusCode: null
+      statusCode: null,
+      error: null
     };
 
     // 捕获POST请求体
@@ -105,12 +118,13 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     recordedRequests.push(request);
     saveRequests();
+    notifyPopup();
   },
   { urls: ["<all_urls>"] },
   ["requestBody"]
 );
 
-// 监听请求头 - 添加 extraHeaders 以捕获 Cookie、Authorization 等敏感头
+// 监听请求头
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
     if (!isRecording) return;
@@ -118,8 +132,7 @@ chrome.webRequest.onSendHeaders.addListener(
     if (isStaticResource(details.url)) return;
 
     const request = recordedRequests.find(r => 
-      r.url === details.url && 
-      r.tabId === details.tabId &&
+      r.requestId === details.requestId &&
       !r.requestHeaders.length
     );
     
@@ -132,7 +145,7 @@ chrome.webRequest.onSendHeaders.addListener(
   ["requestHeaders", "extraHeaders"]
 );
 
-// 监听响应头 - 添加 extraHeaders 以捕获 Set-Cookie 等敏感头
+// 监听响应头
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (!isRecording) return;
@@ -140,8 +153,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     if (isStaticResource(details.url)) return;
 
     const request = recordedRequests.find(r => 
-      r.url === details.url && 
-      r.tabId === details.tabId &&
+      r.requestId === details.requestId &&
       !r.responseHeaders.length
     );
     
@@ -149,36 +161,78 @@ chrome.webRequest.onHeadersReceived.addListener(
       request.responseHeaders = details.responseHeaders || [];
       request.statusCode = details.statusCode;
       saveRequests();
+      notifyPopup();
     }
   },
   { urls: ["<all_urls>"] },
   ["responseHeaders", "extraHeaders"]
 );
 
+// 监听请求完成，记录耗时
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    if (!isRecording) return;
+    if (details.tabId < 0) return;
+    if (isStaticResource(details.url)) return;
+
+    const request = recordedRequests.find(r => r.requestId === details.requestId);
+    
+    if (request && !request.endTime) {
+      request.endTime = Date.now();
+      request.duration = request.endTime - request.startTime;
+      pendingRequests.delete(details.requestId);
+      saveRequests();
+      notifyPopup();
+    }
+  },
+  { urls: ["<all_urls>"] }
+);
+
+// 监听请求错误
+chrome.webRequest.onErrorOccurred.addListener(
+  (details) => {
+    if (!isRecording) return;
+    
+    const request = recordedRequests.find(r => r.requestId === details.requestId);
+    
+    if (request && !request.endTime) {
+      request.endTime = Date.now();
+      request.duration = request.endTime - request.startTime;
+      request.error = details.error;
+      pendingRequests.delete(details.requestId);
+      saveRequests();
+      notifyPopup();
+    }
+  },
+  { urls: ["<all_urls>"] }
+);
+
 // 保存请求到存储
 function saveRequests() {
+  // 限制最大存储数量，防止内存溢出
+  if (recordedRequests.length > 500) {
+    recordedRequests = recordedRequests.slice(-500);
+  }
   chrome.storage.local.set({ recordedRequests: recordedRequests });
 }
 
 // 消息处理
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // 确保状态已初始化
   if (!isInitialized) {
     initializeState().then(() => {
       handleMessage(message, sendResponse);
     });
-    return true; // 异步响应
+    return true;
   }
   
   handleMessage(message, sendResponse);
-  return true; // 保持消息通道打开
+  return true;
 });
 
 // 处理消息的实际逻辑
 function handleMessage(message, sendResponse) {
   switch (message.action) {
     case 'getState':
-      // 每次获取状态时，先从storage刷新过滤器数据确保最新
       chrome.storage.local.get(['domainFilters'], (result) => {
         domainFilters = result.domainFilters || [];
         sendResponse({
@@ -203,14 +257,23 @@ function handleMessage(message, sendResponse) {
 
     case 'clearRequests':
       recordedRequests = [];
+      pendingRequests.clear();
       chrome.storage.local.set({ recordedRequests: [] });
       sendResponse({ success: true });
+      notifyPopup();
+      break;
+
+    case 'deleteRequest':
+      const requestId = message.requestId;
+      recordedRequests = recordedRequests.filter(r => r.id !== requestId);
+      chrome.storage.local.set({ recordedRequests: recordedRequests });
+      sendResponse({ success: true });
+      notifyPopup();
       break;
 
     case 'setFilters':
       domainFilters = message.filters || [];
       chrome.storage.local.set({ domainFilters: domainFilters }, () => {
-        console.log('Filters saved:', domainFilters);
         sendResponse({ success: true });
       });
       break;
@@ -218,7 +281,6 @@ function handleMessage(message, sendResponse) {
     case 'clearFilters':
       domainFilters = [];
       chrome.storage.local.set({ domainFilters: [] }, () => {
-        console.log('Filters cleared');
         sendResponse({ success: true });
       });
       break;
